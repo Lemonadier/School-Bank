@@ -1,5 +1,5 @@
 /**
- * ClassBank v7.1 Logic (Transfer + Fixes)
+ * ClassBank v7.2 Logic (Fixed Loading & Scrolling)
  */
 
 const i18n = {
@@ -69,12 +69,13 @@ const app = {
             } catch (e) { }
         }
 
-        setTimeout(() => {
-            document.querySelectorAll('input[type="password"]').forEach(el => el.value = '');
-        }, 100);
+        setTimeout(() => { document.querySelectorAll('input[type="password"]').forEach(el => el.value = ''); }, 100);
 
         if (!CONFIG.apiUrl) document.getElementById('connection-status').classList.remove('hidden');
-        else app.checkSetupStatus();
+        else {
+            document.getElementById('connection-status').classList.add('hidden');
+            app.checkSetupStatus();
+        }
 
         // Listeners
         document.getElementById('form-login-teacher').onsubmit = app.handleTeacherLogin;
@@ -146,10 +147,14 @@ const app = {
         e.preventDefault();
         if(!CONFIG.apiUrl) return Swal.fire('Error', i18n[CONFIG.lang].msg_setup_needed, 'warning');
         const id = document.getElementById('login-student-id').value.trim();
+        // Loading Spinner added here for Student Login
+        Swal.fire({ title: i18n[CONFIG.lang].msg_verifying, didOpen: () => Swal.showLoading() });
+        
         app.fetchData(async () => {
             const student = state.students.find(s => String(s['Student ID']).toLowerCase() === id.toLowerCase());
             if (student) {
                 CONFIG.user = student;
+                Swal.close();
                 app.setRole('student');
             } else Swal.fire('Not Found', 'Student ID not found', 'error');
         }, true);
@@ -175,24 +180,18 @@ const app = {
 
     logout: () => { sessionStorage.removeItem('cb_session_key'); location.reload(); },
 
-    // --- NAVIGATION FIX ---
     switchTab: (tabName) => {
-        // Reset nav styles
         ['dashboard', 'students', 'transactions', 'analytics'].forEach(t => {
             const btn = document.getElementById(`nav-${t}`);
             if(btn) btn.className = "nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-50 font-medium transition-colors";
         });
-        
-        // Highlight active
         const activeBtn = document.getElementById(`nav-${tabName}`);
         if(activeBtn) activeBtn.className = "nav-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-indigo-600 bg-indigo-50 font-medium transition-colors";
 
-        // UI View logic
         document.getElementById('tab-analytics').classList.add('hidden');
         document.getElementById('tab-data').classList.remove('hidden');
         document.getElementById('teacher-actions').classList.add('hidden');
         
-        // Dashboard specific
         if (tabName === 'dashboard') {
             document.getElementById('dashboard-cards').classList.remove('hidden');
             if(CONFIG.role === 'teacher') document.getElementById('teacher-actions').classList.remove('hidden');
@@ -202,14 +201,12 @@ const app = {
             document.getElementById('tab-analytics').classList.remove('hidden');
             app.renderCharts();
         } else {
-            // Students or History
             document.getElementById('dashboard-cards').classList.add('hidden');
             if (tabName === 'students') app.setTableMode('students');
             if (tabName === 'transactions') app.setTableMode('history');
         }
     },
 
-    // --- TRANSFER LOGIC ---
     toggleTxFields: () => {
         const type = document.querySelector('input[name="tx-type"]:checked').value;
         if(type === 'Transfer') document.getElementById('field-to-student').classList.remove('hidden');
@@ -224,10 +221,8 @@ const app = {
         const date = document.getElementById('tx-date').value;
 
         if (!studentId) return Swal.fire('Error', i18n[CONFIG.lang].err_select_student, 'warning');
-        
         const s1 = state.students.find(st => String(st['Student ID']) == studentId);
         
-        // Validation
         if ((type === 'Withdraw' || type === 'Transfer') && s1.balance < amount) {
             return Swal.fire(i18n[CONFIG.lang].err_insufficient, `${s1.Name} has ฿${app.formatMoney(s1.balance)}`, 'error');
         }
@@ -236,23 +231,19 @@ const app = {
             const receiverId = document.getElementById('tx-to-student').value;
             if(!receiverId) return Swal.fire('Error', i18n[CONFIG.lang].err_select_receiver, 'warning');
             if(receiverId === studentId) return Swal.fire('Error', i18n[CONFIG.lang].err_same_student, 'warning');
-            
             const s2 = state.students.find(st => String(st['Student ID']) == receiverId);
-            
-            // Create Batch for Transfer
             const txs = [
                 { studentId: studentId, type: 'Transfer Out', amount: amount, date: date, note: `To ${s2.Name}` },
                 { studentId: receiverId, type: 'Transfer In', amount: amount, date: date, note: `From ${s1.Name}` }
             ];
             await app.postData({ op: 'batch_add_transactions', transactions: txs }, 'Transfer Successful');
-        
         } else {
             await app.postData({ op: 'add_transaction', studentId, type, amount, date }, 'Transaction Successful');
         }
     },
 
-    // --- EXISTING LOGIC ---
     populateSettingsInputs: () => { if(CONFIG.apiUrl) document.getElementById('api-url').value = CONFIG.apiUrl; },
+    
     saveSettings: async () => {
         const url = document.getElementById('api-url').value.trim();
         const newKey = document.getElementById('new-admin-key').value.trim();
@@ -262,14 +253,20 @@ const app = {
             sessionStorage.setItem('cb_session_key', newKey);
         }
         closeModal('settings');
+        // Hide banner immediately if URL exists
+        if(url) document.getElementById('connection-status').classList.add('hidden');
+        
         if(url !== CONFIG.apiUrl) location.reload();
     },
+
     copyShareLink: () => {
         if(!CONFIG.apiUrl) return Swal.fire('Error', 'No API URL set', 'error');
         const link = `${window.location.href.split('?')[0]}?config=${btoa(CONFIG.apiUrl)}`;
         navigator.clipboard.writeText(link).then(() => Swal.fire('Copied!', 'Link copied.', 'success'));
     },
-    fetchData: async (callback) => {
+
+    fetchData: async (callback, silent = false) => {
+        if (!CONFIG.apiUrl) { if(!silent) Swal.fire('Error', 'API URL missing', 'error'); return; }
         try {
             const res = await fetch(`${CONFIG.apiUrl}?op=get_data`);
             const data = await res.json();
@@ -277,10 +274,14 @@ const app = {
                 state.students = data.students;
                 state.transactions = data.transactions;
                 app.processData();
-                if (callback) callback();
             } else throw new Error(data.message);
-        } catch (e) { Swal.fire('Network Error', 'Check connection.', 'error'); }
+        } catch (e) { 
+            if (!silent) Swal.fire('Network Error', 'Check connection.', 'error'); 
+        } finally {
+            if (callback) callback(); // ALWAYS RUN CALLBACK (Stops Spinner)
+        }
     },
+
     postData: async (payload, successMsg) => {
         Swal.showLoading();
         payload.adminKey = CONFIG.adminKey; 
@@ -297,6 +298,7 @@ const app = {
             }
         } catch (e) { Swal.fire('Error', e.message, 'error'); }
     },
+
     processData: () => {
         let totalDep = 0, totalWith = 0;
         state.students.forEach(s => s.balance = 0);
@@ -320,14 +322,18 @@ const app = {
         app.renderTable();
         app.updateSelectOptions();
     },
+
     shouldCountStats: (sid) => (CONFIG.role === 'teacher' || String(sid) === String(CONFIG.user['Student ID'])),
+
     refreshData: () => {
-        document.getElementById('refresh-icon').classList.add('fa-spin');
+        const icon = document.getElementById('refresh-icon');
+        if(icon) icon.classList.add('fa-spin');
         app.fetchData(() => {
-            setTimeout(() => document.getElementById('refresh-icon').classList.remove('fa-spin'), 500);
+            if(icon) icon.classList.remove('fa-spin');
             Swal.fire({ toast: true, position: 'top-end', icon: 'success', title: 'Updated', showConfirmButton: false, timer: 1500 });
         });
     },
+
     setTableMode: (mode) => {
         state.tableMode = mode;
         const btnS = document.getElementById('btn-mode-students');
@@ -343,6 +349,7 @@ const app = {
         }
         app.renderTable();
     },
+
     renderTable: (filter = '') => {
         const tbody = document.getElementById('table-body');
         const thead = document.getElementById('table-head');
@@ -371,8 +378,6 @@ const app = {
             });
             dataToShow.forEach(t => {
                 const s = state.students.find(stu => String(stu['Student ID']) == String(t['Student ID']));
-                
-                // Type Label Logic
                 let typeLabel = t.Type;
                 let colorClass = 'bg-slate-100 text-slate-700';
                 if(t.Type === 'Deposit') { typeLabel = CONFIG.lang === 'th' ? 'ฝาก' : 'Deposit'; colorClass = 'bg-emerald-100 text-emerald-700'; }
@@ -380,26 +385,20 @@ const app = {
                 else if(t.Type.includes('Transfer')) { typeLabel = t.Type; colorClass = 'bg-blue-100 text-blue-700'; }
 
                 const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td class="px-4 py-3 text-slate-500 text-xs">
-                        ${new Date(t.Date).toLocaleDateString()}
-                        <div class="text-[10px] text-slate-400">${t.Note || ''}</div>
-                    </td>
-                    <td class="px-4 py-3 font-medium text-slate-700">${s ? s.Name : t['Student ID']}</td>
-                    <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-bold ${colorClass}">${typeLabel}</span></td>
-                    <td class="px-4 py-3 text-right font-mono font-bold text-slate-700">฿${app.formatMoney(t.Amount)}</td>
-                `;
+                row.innerHTML = `<td class="px-4 py-3 text-slate-500 text-xs">${new Date(t.Date).toLocaleDateString()}<div class="text-[10px] text-slate-400">${t.Note || ''}</div></td><td class="px-4 py-3 font-medium text-slate-700">${s ? s.Name : t['Student ID']}</td><td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-bold ${colorClass}">${typeLabel}</span></td><td class="px-4 py-3 text-right font-mono font-bold text-slate-700">฿${app.formatMoney(t.Amount)}</td>`;
                 tbody.appendChild(row);
             });
         }
         document.getElementById('empty-state').classList.toggle('hidden', dataToShow.length > 0);
     },
+
     renderCharts: () => {
         if(!state.students.length) return;
         const ctx = document.getElementById('balanceChart').getContext('2d');
         if(window.myChart) window.myChart.destroy();
         window.myChart = new Chart(ctx, { type: 'bar', data: { labels: state.students.map(s => s.Name), datasets: [{ label: 'Balance', data: state.students.map(s => s.balance), backgroundColor: '#4f46e5', borderRadius: 6 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } } });
     },
+
     deleteStudent: async (id) => { if((await Swal.fire({ title: 'Delete?', text: "Undone action", icon: 'warning', showCancelButton: true, confirmButtonColor: '#ef4444' })).isConfirmed) await app.postData({ op: 'delete_student', studentId: id }, 'Deleted'); },
     processBatchStudents: async () => {
         const lines = document.getElementById('batch-input').value.split('\n');

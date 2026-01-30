@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ClassBank v7.2</title>
+    <title>ClassBank v7.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -17,6 +17,11 @@
     <div class="fixed top-4 right-4 z-[100] flex gap-2">
         <button onclick="app.setLang('en')" class="w-8 h-8 rounded-full bg-white shadow-md flex items-center justify-center font-bold text-xs hover:bg-indigo-50 border border-slate-200 transition-all lang-btn active" id="btn-lang-en">EN</button>
         <button onclick="app.setLang('th')" class="w-8 h-8 rounded-full bg-white shadow-md flex items-center justify-center font-bold text-xs hover:bg-indigo-50 border border-slate-200 transition-all lang-btn" id="btn-lang-th">TH</button>
+    </div>
+
+    <!-- Session Timer (Hidden by default) -->
+    <div id="session-warning" class="fixed bottom-4 right-4 z-[100] bg-red-600 text-white px-4 py-2 rounded-full shadow-lg font-bold text-sm flex items-center gap-2 hidden animate-pulse">
+        <i class="fa-solid fa-clock"></i> <span id="session-countdown">00:00</span>
     </div>
 
     <!-- ================= AUTH SCREEN ================= -->
